@@ -1,0 +1,195 @@
+---
+title: "Workers' Income versus Gender"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+source('helpers.R')
+```
+
+Data Summary
+==================
+
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+This sample `flexdashboard`-themed `shiny` application visualizes several statistics 
+of the `case0102` dataset from the `Sleuth3` package - namely, average salary across all genders, amount of each genders, average income by gender, and the total income distribution across all genders.
+
+An arbitrary threshold of \$5000 has been set for the average salary - if the average salary across all genders falls below \$5000, the value box with the dollar icon will turn orange to notify the user.
+
+
+Row 
+-----------------------------------------------------------------------
+
+### Average Salary (in USD) {.value-box}
+
+```{r}
+valueBoxOutput('avg_sal')
+
+change_inc <- get_avg_income() %>% reactiveVal()
+
+output$avg_sal <- renderValueBox({
+  valueBox(change_inc(), icon = 'fa-dollar-sign',
+           color = ifelse(change_inc() < 5000, 'warning', 'primary'))
+})
+```
+
+### Number of Males {.value-box}
+
+```{r}
+valueBoxOutput('num_men')
+
+change_male <- get_genders() %>% reactiveVal()
+
+output$num_men <- renderValueBox({
+  valueBox(change_male(), icon = 'fa-mars')
+})
+```
+
+### Number of Females {.value-box}
+
+```{r}
+valueBoxOutput('num_females')
+
+change_female <- get_genders(sex = 'Female') %>% reactiveVal()
+
+output$num_females <- renderValueBox({
+  valueBox(change_female(), icon = 'fa-venus')
+})
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Average Income by Sex
+```{r}
+plotOutput('bars')
+
+change_df <- reactiveVal(fetch_df())
+output$bars <- renderPlot({
+  change_df() %>% ggplot(aes(x = Sex, y = Salary)) + 
+    stat_summary(fun = mean, geom = 'bar') + theme_bw()
+})
+```
+
+### Distribution of Income
+```{r}
+plotOutput('barhist')
+
+output$barhist <- renderPlot({
+  change_df() %>% ggplot(aes(x = Salary, y = after_stat(density))) + 
+    geom_histogram(bins = 30, position = 'identity') + 
+    geom_density(lwd = 1.5, col = 'red3') + labs(y = 'Count') + theme_bw()
+})
+```
+
+Data Input
+==================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+This pane allows you to add data to the database via two options: manually or via a file input.
+
+You may also choose to interact with the database directly via SQL statements for more advanced operations (e.g., deleting data from the database).  However, do note that this function is specifically meant for manipulating data in the database (i.e., SQL statements used for other purposes may not work as intended).
+
+Row 
+-----------------------------------------------------------------------
+
+### Number of Rows
+
+```{r}
+valueBoxOutput('num_rows')
+
+change_rows <- reactiveVal(nrow(fetch_df()))
+output$num_rows <- renderValueBox({
+  valueBox(change_rows(), icon = 'fa-table')
+})
+```
+
+### Number of Variables
+
+```{r}
+valueBoxOutput('num_vars')
+
+change_cols <- reactiveVal(ncol(fetch_df()))
+
+output$num_vars <- renderValueBox({
+  valueBox(change_cols(), icon = 'fa-question',
+           color = ifelse(change_cols() <= 2, 'primary', 'warning'))
+})
+```
+
+Row {.tabset}
+-----------------------------------------------------------------------
+
+### Manual Input
+```{r}
+p('Manually input data one by one into the database.  This is best if you have minute amounts of data to input.  If the input is successful, the change will be reflected in the above value boxes.')
+br()
+
+selectInput('sex', 'Gender', c('Male', 'Female'))
+numericInput('salary', 'Salary (in USD)', value = 5000, min = 0)
+actionButton('manual', 'Input Data', class = 'btn-primary')
+
+observeEvent(input$manual, {
+  upload_manual_data(sex = input$sex, salary = input$salary)
+  change_rows(fetch_df() %>% nrow())
+  change_cols(fetch_df() %>% ncol())
+  change_df(fetch_df())
+  change_male(get_genders())
+  change_female(get_genders(sex = 'Female'))
+  change_inc(get_avg_income())
+})
+```
+
+### File Upload
+```{r}
+p('Bulk upload data into the database.  Do ensure that the file you upload meet the following criteria:')
+tags$ol(
+  list(tags$li('Your file is a `.csv` file.'), 
+       tags$li('The file has two headers "Sex" and "Salary" for each worker\'s gender and (monthly) income.')
+       )
+  )
+p('If the upload is successful, then the change will be reflected in the above value boxes.')
+br()
+
+fileInput('upload', NULL, accept = c('.csv'))
+# actionButton('file_data', 'Input Data', class = 'btn-primary')
+
+df_upload <- reactive({input$upload})
+observe({
+  req(df_upload()) ; file <- df_upload()
+  file$datapath %>% read.csv() %>% upload_data(df = .)
+  change_rows(fetch_df() %>% nrow())
+  change_cols(fetch_df() %>% ncol())
+  change_df(fetch_df())
+  change_male(get_genders())
+  change_female(get_genders(sex = 'Female'))
+  change_inc(get_avg_income())
+})
+```
+
+### SQL Statements
+```{r}
+p('Enter SQL statements to manipulate the database directly.  If the SQL statement is successfully executed, the statement\'s change on the data\'s parameters should be reflected in the above value boxes.')
+br()
+textInput('sql_input', 'Enter a SQL statement:')
+actionButton('submit', 'Send Statement', class = 'btn-primary')
+
+observeEvent(input$submit, {
+  input$sql_input %>% process_statement(statement = .)
+  change_rows(fetch_df() %>% nrow())
+  change_cols(fetch_df() %>% ncol())
+  change_df(fetch_df())
+  change_male(get_genders())
+  change_female(get_genders(sex = 'Female'))
+  change_inc(get_avg_income())
+})
+```
+
